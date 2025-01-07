@@ -14,7 +14,10 @@ const COLOR_TAG_START: &str = "<font color=\"";
 const COLOR_TAG_END: &str = "</font>";
 
 // rgb hex color code
-const HEX_COLOR_REGEX: &str = r"#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}";
+const HEX_COLOR_REGEX: &str = r"#[0-9a-fA-F]{6}";
+// do i do permissive matching for regular rgb in addition to rrggbb?
+// const HEX_COLOR_REGEX: &str = r"#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}";
+
 
 
 fn add_color(sub: &mut Subtitle, brightness: f32) -> &mut Subtitle {
@@ -32,13 +35,10 @@ fn add_color(sub: &mut Subtitle, brightness: f32) -> &mut Subtitle {
     return sub;
 }
 
+// placeholder. palette lch maybe
 fn transform_color(color: String, brightness: f32) -> String {
     return color;
 }
-
-// fn get_brightness_at_time(time: Timestamp, video: &BrightnessAnalyzer) -> f32 {
-//     return video.query_brightness(f64::from(time.convert_to_milliseconds()) / 1000f64);
-// }
 
 fn main() {
     let video = BrightnessAnalyzer::new(VIDEO_INPUT);
