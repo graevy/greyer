@@ -3,7 +3,7 @@ use palette::Srgb;
 use regex::Regex;
 // use time::Time;
 
-use brightness::BrightnessAnalyzer;
+mod brightness;
 
 const SRT_INPUT: &str = "input.srt";
 const VIDEO_INPUT: &str = "input.mp4";
@@ -15,8 +15,6 @@ const COLOR_TAG_END: &str = "</font>";
 
 // rgb hex color code
 const HEX_COLOR_REGEX: &str = r"#[0-9a-fA-F]{6}";
-// do i do permissive matching for regular rgb in addition to rrggbb?
-// const HEX_COLOR_REGEX: &str = r"#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}";
 
 
 
@@ -41,10 +39,13 @@ fn transform_color(color: String, brightness: f32) -> String {
 }
 
 fn main() {
-    let video = BrightnessAnalyzer::new(VIDEO_INPUT);
+    let video = brightness::BrightnessAnalyzer::new(VIDEO_INPUT)?;
     let subs = &mut Subtitles::parse_from_file(SRT_INPUT, None).unwrap();
     for s in subs.into_iter() {
-        let brightness = video.query_brightness(f32::from(sub.start_time.convert_to_milliseconds()) / 1000f64);
+        // oh god
+        let timetuple = s.start_time.get();
+        let timef64: f64 = f64::from(timetuple.0 * 3600) + f64::from(timetuple.1 * 60) + f64::from(timetuple.2) + f64::from(timetuple.3) / 1000.0;
+        let brightness = video.query_brightness(timef64)?;
         add_color(s, brightness);
     }
     subs.write_to_file(OUTPUT, None).unwrap();

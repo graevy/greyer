@@ -1,8 +1,8 @@
 // need to debug this llm slop
 
-use ffmpeg_next as ffmpeg;
+use ffmpeg_the_third as ffmpeg;
 
-struct BrightnessAnalyzer {
+pub struct BrightnessAnalyzer {
     context: ffmpeg::format::context::Input,
     decoder: ffmpeg::decoder::Video,
     scaler: ffmpeg::software::scaling::Context,
@@ -11,7 +11,7 @@ struct BrightnessAnalyzer {
 }
 
 impl BrightnessAnalyzer {
-    fn new(file_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(file_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         ffmpeg::init()?;
         let context = ffmpeg::format::input(file_path)?;
         let video_stream = context
@@ -42,7 +42,7 @@ impl BrightnessAnalyzer {
     }
 
     // Seek to a specific timestamp and decode the corresponding frame's brightness
-    fn query_brightness(&mut self, timestamp: f64) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    pub fn query_brightness(&mut self, timestamp: f64) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let seek_target = (timestamp * f64::from(self.time_base.denominator()) / f64::from(self.time_base.numerator())) as i64;
 
         // Seek to the target timestamp
