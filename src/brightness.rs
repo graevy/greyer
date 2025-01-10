@@ -1,5 +1,3 @@
-// need to debug this llm slop
-
 use ffmpeg_the_third as ffmpeg;
 
 pub struct BrightnessAnalyzer {
@@ -26,7 +24,7 @@ impl BrightnessAnalyzer {
             decoder.format(),
             decoder.width(),
             decoder.height(),
-            ffmpeg::format::Pixel::GRAY8, // Extract only the luma (brightness) channel
+            ffmpeg::format::Pixel::GRAY8, // luma (brightness) channel
             decoder.width(),
             decoder.height(),
             ffmpeg::software::scaling::Flags::BILINEAR,
@@ -49,16 +47,23 @@ impl BrightnessAnalyzer {
         self.context.seek(seek_target, ffmpeg::format::context::SeekFlags::ANY)?;
 
         // Decode the frame at the target timestamp
-        for (stream, packet) in self.context.packets() {
-            if stream.index() == self.video_stream_index {
-                self.decoder.send_packet(&packet)?;
+        for result in self.context.packets() {
+            match result {
+                Ok((stream, packet)) => {
+                    if stream.index() == self.video_stream_index {
+                        self.decoder.send_packet(&packet)?;
+                    }
 
-                while let Ok(frame) = self.decoder.receive_frame() {
-                    let mut gray_frame = ffmpeg::frame::Video::empty();
-                    self.scaler.run(&frame, &mut gray_frame)?;
+                    while let Ok(frame) = self.decoder.receive_frame() {
+                        let mut gray_frame = ffmpeg::frame::Video::empty();
+                        self.scaler.run(&frame, &mut gray_frame)?;
 
-                    // Return the luma channel (brightness) data
-                    return Ok(gray_frame.data(0).to_vec());
+                        // Return the luma channel (brightness) data
+                        return Ok(gray_frame.data(0).to_vec());
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{:?}", e);
                 }
             }
         }
@@ -67,15 +72,15 @@ impl BrightnessAnalyzer {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut analyzer = BrightnessAnalyzer::new("input.mp4")?;
+// fn main() -> Result<(), Box<dyn std::error::Error>> {
+//     let mut analyzer = BrightnessAnalyzer::new("input.mp4")?;
 
-    // Query brightness at different timestamps
-    let timestamps = vec![1.0, 2.5, 5.0]; // In seconds
-    for ts in timestamps {
-        let brightness_data = analyzer.query_brightness(ts)?;
-        println!("Brightness data at {}s: {:?}", ts, brightness_data);
-    }
+//     // Query brightness at different timestamps
+//     let timestamps = vec![1.0, 2.5, 5.0]; // In seconds
+//     for ts in timestamps {
+//         let brightness_data = analyzer.query_brightness(ts)?;
+//         println!("Brightness data at {}s: {:?}", ts, brightness_data);
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
