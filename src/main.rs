@@ -1,9 +1,7 @@
-use srtlib::{Subtitle, Subtitles, Timestamp};
-use palette::Srgb;
+use srtlib::{Subtitle, Subtitles};
+use palette::{FromColor, Srgb, Lch, Darken};
 use regex::Regex;
-// use time::Time;
-
-mod brightness;
+use ffmpeg_sidecar::event::OutputVideoFrame;
 
 const SRT_INPUT: &str = "input.srt";
 const VIDEO_INPUT: &str = "input.mp4";
@@ -33,19 +31,59 @@ fn add_color(sub: &mut Subtitle, brightness: f32) -> &mut Subtitle {
     return sub;
 }
 
-// placeholder. palette lch maybe
 fn transform_color(color: String, brightness: f32) -> String {
-    return color;
+    let r = u8::from_str_radix(&color[1..3], 16).expect("at r") as f32;
+    let g = u8::from_str_radix(&color[3..5], 16).expect("at g") as f32;
+    let b = u8::from_str_radix(&color[5..], 16).expect("at b") as f32;
+
+    let lch = Lch::from_color(Srgb::new(r,g,b));
+    let darkened = lch.darken(brightness);
+    let new_rgb: Srgb<u8> = Srgb::from_color(darkened).into();
+
+    format!("#{:02x}{:02x}{:02x}", new_rgb.red, new_rgb.green, new_rgb.blue)
 }
 
+// https://ffmpeg.org/ffmpeg-utils.html#time-duration-syntax
+fn ffmpeg_timestamp(stamp: (u8, u8, u8, u16)) -> String {
+    format!("S+{}ms", ((stamp.0 as u64 * 3600000) + (stamp.1 as u64 * 60000) + (stamp.2 as u64 * 1000) + stamp.3 as u64).to_string())
+}
+
+fn average_y_channel_brightness(frame: &OutputVideoFrame) -> f32 {
+
+    let data = &frame.data;
+    let sum: f32 = data.iter().map(|x| *x as f32).sum();
+
+    (sum / data.len() as f32).clamp(0.0, 1.0)
+}
+
+// pretty weak right now. it spawns a different ffmpeg process for each frame seek.
+// maybe an ffmpeg video stream iterator that i can next() for a single frame, and seek in between?
 fn main() {
-    let video = brightness::BrightnessAnalyzer::new(VIDEO_INPUT)?;
+    let mut video = ffmpeg_sidecar::command::FfmpegCommand::new();
+    video
+        .input(VIDEO_INPUT)
+        // .no_audio() // not sure if relevant
+        .format("rawvideo")
+        // converts to grayscale. for yuv color space, strips u&v;
+        // for rgb, applies r * 0.299 + g * 0.587 + b * 0.114 perceived brightness formula.
+        // either way, we end up with the desired brightness value per-pixel
+        .pix_fmt("gray")
+        .frames(1);
+
     let subs = &mut Subtitles::parse_from_file(SRT_INPUT, None).unwrap();
     for s in subs.into_iter() {
-        // oh god
-        let timetuple = s.start_time.get();
-        let timef64: f64 = f64::from(timetuple.0 * 3600) + f64::from(timetuple.1 * 60) + f64::from(timetuple.2) + f64::from(timetuple.3) / 1000.0;
-        let brightness = video.query_brightness(timef64)?;
+        let timestamp = ffmpeg_timestamp(s.start_time.get());
+        let frame = video
+            .seek(&timestamp)
+            // --- the command is now built and a process can be spawned ---
+            .spawn()
+            .expect("on spawn")
+            .iter()
+            .expect("on iter")
+            .filter_frames()
+            .next()
+            .expect("on decode");
+        let brightness = average_y_channel_brightness(&frame);
         add_color(s, brightness);
     }
     subs.write_to_file(OUTPUT, None).unwrap();

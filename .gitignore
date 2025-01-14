@@ -1,3 +1,5 @@
 /target
 *.nix
 .envrc
+*.mkv
+*.mp4
