@@ -1,5 +1,6 @@
 /target
-*.nix
 .envrc
+flake.nix
+flake.lock
 *.mkv
 *.mp4

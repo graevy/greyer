@@ -1,3 +1,4 @@
+# never really got this to work, but the gist is that you have to use bindgenHook to get ffmpeg to build at all
 {
   inputs = {
     naersk.url = "github:nix-community/naersk/master";

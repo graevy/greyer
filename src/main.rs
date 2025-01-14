@@ -4,7 +4,7 @@ use regex::Regex;
 use ffmpeg_sidecar::event::OutputVideoFrame;
 
 const SRT_INPUT: &str = "input.srt";
-const VIDEO_INPUT: &str = "input.mp4";
+const VIDEO_INPUT: &str = "input.mkv";
 const OUTPUT: &str = "output.srt";
 const COLOR_DEFAULT: &str = "#ffffff";
 
@@ -32,9 +32,9 @@ fn add_color(sub: &mut Subtitle, brightness: f32) -> &mut Subtitle {
 }
 
 fn transform_color(color: String, brightness: f32) -> String {
-    let r = u8::from_str_radix(&color[1..3], 16).expect("at r") as f32;
-    let g = u8::from_str_radix(&color[3..5], 16).expect("at g") as f32;
-    let b = u8::from_str_radix(&color[5..], 16).expect("at b") as f32;
+    let r = u8::from_str_radix(&color[1..3], 16).expect("Err at r") as f32;
+    let g = u8::from_str_radix(&color[3..5], 16).expect("Err at g") as f32;
+    let b = u8::from_str_radix(&color[5..], 16).expect("Err at b") as f32;
 
     let lch = Lch::from_color(Srgb::new(r,g,b));
     let darkened = lch.darken(brightness);
@@ -48,8 +48,7 @@ fn ffmpeg_timestamp(stamp: (u8, u8, u8, u16)) -> String {
     format!("S+{}ms", ((stamp.0 as u64 * 3600000) + (stamp.1 as u64 * 60000) + (stamp.2 as u64 * 1000) + stamp.3 as u64).to_string())
 }
 
-fn average_y_channel_brightness(frame: &OutputVideoFrame) -> f32 {
-
+fn average_brightness(frame: &OutputVideoFrame) -> f32 {
     let data = &frame.data;
     let sum: f32 = data.iter().map(|x| *x as f32).sum();
 
@@ -73,17 +72,18 @@ fn main() {
     let subs = &mut Subtitles::parse_from_file(SRT_INPUT, None).unwrap();
     for s in subs.into_iter() {
         let timestamp = ffmpeg_timestamp(s.start_time.get());
-        let frame = video
-            .seek(&timestamp)
-            // --- the command is now built and a process can be spawned ---
+        let frame_cmd = video.seek(&timestamp);
+        // --- the command is now built and a process can be spawned ---
+        let mut frame_iter = frame_cmd
             .spawn()
-            .expect("on spawn")
+            .expect("Err on spawn")
             .iter()
-            .expect("on iter")
-            .filter_frames()
-            .next()
-            .expect("on decode");
-        let brightness = average_y_channel_brightness(&frame);
+            .expect("Err on iter")
+            .filter_frames();
+        let frame = &frame_iter
+            .find(|_| true)
+            .expect(&format!("Err on decode. timestamp: {timestamp}"));
+        let brightness = average_brightness(&frame);
         add_color(s, brightness);
     }
     subs.write_to_file(OUTPUT, None).unwrap();
