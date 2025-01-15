@@ -15,7 +15,6 @@ const COLOR_TAG_END: &str = "</font>";
 const HEX_COLOR_REGEX: &str = r"#[0-9a-fA-F]{6}";
 
 
-
 fn add_color(sub: &mut Subtitle, brightness: f32) -> &mut Subtitle {
     let subtext = &mut sub.text;
     
@@ -45,7 +44,7 @@ fn transform_color(color: String, brightness: f32) -> String {
 
 // https://ffmpeg.org/ffmpeg-utils.html#time-duration-syntax
 fn ffmpeg_timestamp(stamp: (u8, u8, u8, u16)) -> String {
-    format!("S+{}ms", ((stamp.0 as u64 * 3600000) + (stamp.1 as u64 * 60000) + (stamp.2 as u64 * 1000) + stamp.3 as u64).to_string())
+    format!("{}ms", ((stamp.0 as u64 * 3600000) + (stamp.1 as u64 * 60000) + (stamp.2 as u64 * 1000) + stamp.3 as u64).to_string())
 }
 
 fn average_brightness(frame: &OutputVideoFrame) -> f32 {
@@ -58,21 +57,21 @@ fn average_brightness(frame: &OutputVideoFrame) -> f32 {
 // pretty weak right now. it spawns a different ffmpeg process for each frame seek.
 // maybe an ffmpeg video stream iterator that i can next() for a single frame, and seek in between?
 fn main() {
-    let mut video = ffmpeg_sidecar::command::FfmpegCommand::new();
-    video
-        .input(VIDEO_INPUT)
-        // .no_audio() // not sure if relevant
-        .format("rawvideo")
-        // converts to grayscale. for yuv color space, strips u&v;
-        // for rgb, applies r * 0.299 + g * 0.587 + b * 0.114 perceived brightness formula.
-        // either way, we end up with the desired brightness value per-pixel
-        .pix_fmt("gray")
-        .frames(1);
-
     let subs = &mut Subtitles::parse_from_file(SRT_INPUT, None).unwrap();
     for s in subs.into_iter() {
         let timestamp = ffmpeg_timestamp(s.start_time.get());
-        let frame_cmd = video.seek(&timestamp);
+        
+        // build a command to extract the single frame we want. ORDER MATTERS
+        let mut frame_cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
+        frame_cmd
+            .seek(&timestamp)
+            .input(VIDEO_INPUT)
+            .format("rawvideo")
+            .overwrite()
+            .pix_fmt("gray")
+            .frames(1)
+            .output("-");
+
         // --- the command is now built and a process can be spawned ---
         let mut frame_iter = frame_cmd
             .spawn()
