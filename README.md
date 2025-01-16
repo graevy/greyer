@@ -4,6 +4,7 @@ this script:
 - uses ffmpeg to extract the perceived average brightness of the frame at each entry
 - adds or amends existing color tags in a new .srt file to darken subtitles when the brightness is low
 
-it's only useful for HDR on OLEDs
+only good use-case is HDR on OLEDs
 
-still experimenting with it
+`cargo build`
+`cargo run -- -s input_srt_file -v input_video_file -o output_srt_file`
