@@ -4,3 +4,4 @@ flake.nix
 flake.lock
 *.mkv
 *.mp4
+output.srt

@@ -1,67 +1,87 @@
 use srtlib::{Subtitle, Subtitles};
-use palette::{FromColor, Srgb, Lch, Darken};
 use regex::Regex;
 use ffmpeg_sidecar::event::OutputVideoFrame;
 
 const SRT_INPUT: &str = "input.srt";
 const VIDEO_INPUT: &str = "input.mkv";
 const OUTPUT: &str = "output.srt";
-const COLOR_DEFAULT: &str = "#ffffff";
-
-const COLOR_TAG_START: &str = "<font color=\"";
-const COLOR_TAG_END: &str = "</font>";
+const COLOR_DEFAULT: &str = "7f7f7f";
+const COLOR_MIDPOINT: i32 = 127;
 
 // rgb hex color code
 const HEX_COLOR_REGEX: &str = r"#[0-9a-fA-F]{6}";
 
+// 0 to 1 inclusive float -- 1 sets color to COLOR_MIDPOINT, 0 leaves as-is, 0.5 averages, etc
+const CORRECTION_COEFFICIENT: f32 = 0.5;
 
-fn add_color(sub: &mut Subtitle, brightness: f32) -> &mut Subtitle {
+
+// this is just for the case where color is already hardcoded into the srt file
+// my preference is to respect those existing hardcodes, color-correct them, and skip adding
+fn replace_existing_sub_colors(sub: &mut Subtitle, correction: isize) -> bool {
     let subtext = &mut sub.text;
-    
-    // you could encounter existing color tags within the .srt
-    // they will override the outer tag we're about to place, so they need to be transformed too
-    let color_regex = Regex::new(HEX_COLOR_REGEX).unwrap();
+    let mut replaced = false;
+
+    let color_regex = Regex::new(HEX_COLOR_REGEX).expect("Err at regex, somehow?");
     for m in color_regex.find_iter(subtext.clone().as_str()) {
+        replaced = true;
         let match_str = m.as_str();
-        *subtext = subtext.replace(match_str, &transform_color(String::from(match_str), brightness));
+        *subtext = subtext.replace(match_str, &transform_color(String::from(match_str), correction));
     }
-    // add "<font color=newcolor>" before the subtitle text and </font> after
-    *subtext = format!("{}{}{}{}{}", COLOR_TAG_START, transform_color(String::from(COLOR_DEFAULT) , brightness), "\">", subtext, COLOR_TAG_END);
-    return sub;
+    replaced
 }
 
-fn transform_color(color: String, brightness: f32) -> String {
-    let r = u8::from_str_radix(&color[1..3], 16).expect("Err at r") as f32;
-    let g = u8::from_str_radix(&color[3..5], 16).expect("Err at g") as f32;
-    let b = u8::from_str_radix(&color[5..], 16).expect("Err at b") as f32;
+fn add_color_to_sub(sub: &mut Subtitle, correction: isize) {
+    let subtext = &mut sub.text;
 
-    let lch = Lch::from_color(Srgb::new(r,g,b));
-    let darkened = lch.darken(brightness);
-    let new_rgb: Srgb<u8> = Srgb::from_color(darkened).into();
+    // add "<font color=newcolor>" before the subtitle text and </font> after
+    *subtext = format!(
+        "{}{}{}{}{}",
+        "<font color=\"",
+        transform_color(String::from(COLOR_DEFAULT), correction),
+        "\">", subtext, "</font>"
+    );
+}
 
-    format!("#{:02x}{:02x}{:02x}", new_rgb.red, new_rgb.green, new_rgb.blue)
+// everything already in a YUV container (most video online) doesn't need to be transformed
+fn transform_color(color: String, correction: isize) -> String {
+    let mut r = isize::from_str_radix(&color[1..3], 16).expect("Err at r");
+    let mut g = isize::from_str_radix(&color[3..5], 16).expect("Err at g");
+    let mut b = isize::from_str_radix(&color[5..], 16).expect("Err at b");
+
+    r += correction;
+    g += correction;
+    b += correction;
+
+    format!("#{:02x}{:02x}{:02x}", r, g, b)
 }
 
 // https://ffmpeg.org/ffmpeg-utils.html#time-duration-syntax
 fn ffmpeg_timestamp(stamp: (u8, u8, u8, u16)) -> String {
-    format!("{}ms", ((stamp.0 as u64 * 3600000) + (stamp.1 as u64 * 60000) + (stamp.2 as u64 * 1000) + stamp.3 as u64).to_string())
+    format!("{}ms", (
+        (stamp.0 as u64 * 3600000) + 
+        (stamp.1 as u64 * 60000) + 
+        (stamp.2 as u64 * 1000) + 
+        stamp.3 as u64
+    ).to_string())
 }
 
-fn average_brightness(frame: &OutputVideoFrame) -> f32 {
+// of all pixels in a frame, e.g. all 2073600 pixels in a 1080p frame.
+fn get_average_brightness(frame: &OutputVideoFrame) -> i32 {
     let data = &frame.data;
-    let sum: f32 = data.iter().map(|x| *x as f32).sum();
+    let sum: i32 = data.iter().map(|x| *x as i32).sum();
 
-    (sum / data.len() as f32).clamp(0.0, 1.0)
+    sum / data.len() as i32
 }
 
 // pretty weak right now. it spawns a different ffmpeg process for each frame seek.
 // maybe an ffmpeg video stream iterator that i can next() for a single frame, and seek in between?
+// would really require getting into ffmpeg, or at least the bindings, which do NOT want to build
 fn main() {
     let subs = &mut Subtitles::parse_from_file(SRT_INPUT, None).unwrap();
-    for s in subs.into_iter() {
-        let timestamp = ffmpeg_timestamp(s.start_time.get());
-        
-        // build a command to extract the single frame we want. ORDER MATTERS
+    for sub in subs.into_iter() {
+        let timestamp = ffmpeg_timestamp(sub.start_time.get());
+
+        // build a command to extract the single frame we want. order matters
         let mut frame_cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
         frame_cmd
             .seek(&timestamp)
@@ -73,17 +93,24 @@ fn main() {
             .output("-");
 
         // --- the command is now built and a process can be spawned ---
-        let mut frame_iter = frame_cmd
+        let mut frame_proc = frame_cmd
             .spawn()
-            .expect("Err on spawn")
+            .expect("Err on spawn");
+
+        // let proc_stdout = frame_proc.take_stdout().expect("Err on stdout");
+        // let proc_stderr = frame_proc.take_stderr().expect("Err on stderr");
+
+        let mut frame_iter = frame_proc
             .iter()
             .expect("Err on iter")
             .filter_frames();
-        let frame = &frame_iter
+
+        let frame = frame_iter
             .find(|_| true)
             .expect(&format!("Err on decode. timestamp: {timestamp}"));
-        let brightness = average_brightness(&frame);
-        add_color(s, brightness);
+        let brightness = get_average_brightness(&frame);
+        let correction = ((COLOR_MIDPOINT - brightness) as f32 * CORRECTION_COEFFICIENT) as isize;
+        if !replace_existing_sub_colors(sub, correction) { add_color_to_sub(sub, correction); }
     }
     subs.write_to_file(OUTPUT, None).unwrap();
 }
