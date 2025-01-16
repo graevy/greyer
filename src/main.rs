@@ -9,8 +9,7 @@ const COLOR_MIDPOINT: i32 = 127;
 // rgb hex color code
 const HEX_COLOR_REGEX: &str = r"#[0-9a-fA-F]{6}";
 
-// 0 to 1 inclusive float -- 1 sets color to COLOR_MIDPOINT, 0 leaves as-is, 0.5 averages, etc
-const CORRECTION_COEFFICIENT: f32 = 0.5;
+const DEFAULT_COEFFICIENT: &str = "0.5";
 
 
 #[derive(Parser, Debug)]
@@ -22,8 +21,14 @@ struct Args {
     #[arg(short='v', long="input_video", help="input video container to grab frame brightness from")]
     input_vid: String,
 
-    #[arg(short='o', long="output_srt", help="output .srt file, color-corrected")]
+    #[arg(short='o', long="output_srt", help="output .srt file, color-corrected", default_value="out.srt")]
     output_sub: String,
+
+    #[arg(short='c', long="correction_coefficient",
+    help="0 to 1 inclusive float -- 1 sets color to COLOR_MIDPOINT, 0 leaves as-is, 0.5 averages",
+    default_value=DEFAULT_COEFFICIENT
+    )]
+    coefficient: f32,
 }
 
 
@@ -88,10 +93,12 @@ fn get_average_brightness(frame: &OutputVideoFrame) -> i32 {
 
 // pretty weak right now. it spawns a different ffmpeg process for each frame seek.
 // maybe an ffmpeg video stream iterator that i can next() for a single frame, and seek in between?
-// would really require getting into ffmpeg, or at least the bindings, which do NOT want to build
+// would really require getting into ffmpeg, or at least the bindings, which do NOT want to builds
 fn main() {
     let args = Args::parse();
-    let subs = &mut Subtitles::parse_from_file(&args.input_sub, None).unwrap();
+    let subs = &mut Subtitles::parse_from_file(&args.input_sub, None)
+        .expect(format!("Err parsing {}",&args.input_sub).as_str());
+
     for sub in subs.into_iter() {
         let timestamp = ffmpeg_timestamp(sub.start_time.get());
 
@@ -123,8 +130,9 @@ fn main() {
             .find(|_| true)
             .expect(&format!("Err on decode. timestamp: {timestamp}"));
         let brightness = get_average_brightness(&frame);
-        let correction = ((brightness - COLOR_MIDPOINT) as f32 * CORRECTION_COEFFICIENT) as isize;
+        let correction = ((brightness - COLOR_MIDPOINT) as f32 * &args.coefficient) as isize;
         if !replace_existing_sub_colors(sub, correction) { add_color_to_sub(sub, correction); }
     }
-    subs.write_to_file(&args.output_sub, None).unwrap();
+    subs.write_to_file(&args.output_sub, None)
+        .expect(format!("Err writing to {}", &args.output_sub).as_str());
 }
