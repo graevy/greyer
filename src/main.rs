@@ -5,7 +5,7 @@ use ffmpeg_sidecar::event::OutputVideoFrame;
 const SRT_INPUT: &str = "input.srt";
 const VIDEO_INPUT: &str = "input.mkv";
 const OUTPUT: &str = "output.srt";
-const COLOR_DEFAULT: &str = "7f7f7f";
+const COLOR_DEFAULT: &str = "#7f7f7f";
 const COLOR_MIDPOINT: i32 = 127;
 
 // rgb hex color code
@@ -25,7 +25,7 @@ fn replace_existing_sub_colors(sub: &mut Subtitle, correction: isize) -> bool {
     for m in color_regex.find_iter(subtext.clone().as_str()) {
         replaced = true;
         let match_str = m.as_str();
-        *subtext = subtext.replace(match_str, &transform_color(String::from(match_str), correction));
+        *subtext = subtext.replace(match_str, &transform_color(match_str, correction));
     }
     replaced
 }
@@ -37,20 +37,20 @@ fn add_color_to_sub(sub: &mut Subtitle, correction: isize) {
     *subtext = format!(
         "{}{}{}{}{}",
         "<font color=\"",
-        transform_color(String::from(COLOR_DEFAULT), correction),
+        transform_color(COLOR_DEFAULT, correction),
         "\">", subtext, "</font>"
     );
 }
 
-// everything already in a YUV container (most video online) doesn't need to be transformed
-fn transform_color(color: String, correction: isize) -> String {
+fn transform_color(color: &str, correction: isize) -> String {
     let mut r = isize::from_str_radix(&color[1..3], 16).expect("Err at r");
     let mut g = isize::from_str_radix(&color[3..5], 16).expect("Err at g");
     let mut b = isize::from_str_radix(&color[5..], 16).expect("Err at b");
 
-    r += correction;
-    g += correction;
-    b += correction;
+    r = (r + correction).clamp(0, 255);
+    g = (g + correction).clamp(0, 255);
+    b = (b + correction).clamp(0, 255);
+
 
     format!("#{:02x}{:02x}{:02x}", r, g, b)
 }
@@ -109,7 +109,7 @@ fn main() {
             .find(|_| true)
             .expect(&format!("Err on decode. timestamp: {timestamp}"));
         let brightness = get_average_brightness(&frame);
-        let correction = ((COLOR_MIDPOINT - brightness) as f32 * CORRECTION_COEFFICIENT) as isize;
+        let correction = ((brightness - COLOR_MIDPOINT) as f32 * CORRECTION_COEFFICIENT) as isize;
         if !replace_existing_sub_colors(sub, correction) { add_color_to_sub(sub, correction); }
     }
     subs.write_to_file(OUTPUT, None).unwrap();
