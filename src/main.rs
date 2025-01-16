@@ -1,10 +1,8 @@
 use srtlib::{Subtitle, Subtitles};
 use regex::Regex;
 use ffmpeg_sidecar::event::OutputVideoFrame;
+use clap::Parser;
 
-const SRT_INPUT: &str = "input.srt";
-const VIDEO_INPUT: &str = "input.mkv";
-const OUTPUT: &str = "output.srt";
 const COLOR_DEFAULT: &str = "#7f7f7f";
 const COLOR_MIDPOINT: i32 = 127;
 
@@ -15,8 +13,23 @@ const HEX_COLOR_REGEX: &str = r"#[0-9a-fA-F]{6}";
 const CORRECTION_COEFFICIENT: f32 = 0.5;
 
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short='s', long="input_srt", help="input .srt file to color-correct")]
+    input_sub: String,
+
+    #[arg(short='v', long="input_video", help="input video container to grab frame brightness from")]
+    input_vid: String,
+
+    #[arg(short='o', long="output_srt", help="output .srt file, color-corrected")]
+    output_sub: String,
+}
+
+
 // this is just for the case where color is already hardcoded into the srt file
 // my preference is to respect those existing hardcodes, color-correct them, and skip adding
+// this isn't complete, i think there's an edge case of a font tag that doesn't include color data
 fn replace_existing_sub_colors(sub: &mut Subtitle, correction: isize) -> bool {
     let subtext = &mut sub.text;
     let mut replaced = false;
@@ -77,7 +90,8 @@ fn get_average_brightness(frame: &OutputVideoFrame) -> i32 {
 // maybe an ffmpeg video stream iterator that i can next() for a single frame, and seek in between?
 // would really require getting into ffmpeg, or at least the bindings, which do NOT want to build
 fn main() {
-    let subs = &mut Subtitles::parse_from_file(SRT_INPUT, None).unwrap();
+    let args = Args::parse();
+    let subs = &mut Subtitles::parse_from_file(&args.input_sub, None).unwrap();
     for sub in subs.into_iter() {
         let timestamp = ffmpeg_timestamp(sub.start_time.get());
 
@@ -85,7 +99,7 @@ fn main() {
         let mut frame_cmd = ffmpeg_sidecar::command::FfmpegCommand::new();
         frame_cmd
             .seek(&timestamp)
-            .input(VIDEO_INPUT)
+            .input(&args.input_vid)
             .format("rawvideo")
             .overwrite()
             .pix_fmt("gray")
@@ -112,5 +126,5 @@ fn main() {
         let correction = ((brightness - COLOR_MIDPOINT) as f32 * CORRECTION_COEFFICIENT) as isize;
         if !replace_existing_sub_colors(sub, correction) { add_color_to_sub(sub, correction); }
     }
-    subs.write_to_file(OUTPUT, None).unwrap();
+    subs.write_to_file(&args.output_sub, None).unwrap();
 }
