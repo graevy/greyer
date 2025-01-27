@@ -8,3 +8,6 @@ srtlib = "0.2.0"
 regex = "1.11.1"
 ffmpeg-sidecar = "=2.0.0"
 clap = { version = "4.5.26", features = ["derive"] }
+tl = "0.7.8"
+openssl = "0.10.69"
+pkg-config = "0.3.31"
