@@ -91,7 +91,7 @@ fn ffmpeg_timestamp(stamp: (u8, u8, u8, u16)) -> String {
     ).to_string())
 }
 
-//
+// grabs brightness at closest iframe to timestamp
 // i suspect the next version of this should use `ffprobe read_intervals`;
 // read_intervals can accept essentially a .csv of timestamps
 fn get_frame_yavg_fast(timestamp: &String, input_vid: &String) -> f32 {
@@ -153,9 +153,8 @@ fn get_frame_yavg_fast(timestamp: &String, input_vid: &String) -> f32 {
     }
 }
 
-// this is slower because it uses accurate_seek, meaning it seeks to the iframe preceeding the timestamp,
-// and decodes video until it reaches the timestamp.
-// next probably involves delving into libavcodec/libavfilter to manipulate streams directly
+// uses accurate_seek, meaning it decodes video from preceeding iframe to supplied timestamp
+// next version probably involves delving into libavcodec/libavfilter to manipulate streams directly
 fn get_frame_yavg_slow(timestamp: &String, input_vid: &String) -> f32 {
     // final command should look like
     // ffmpeg -y -hide_banner -accurate_seek -ss 1337 -i input.mkv -filter_complex signalstats,metadata=print:key=lavfi.signalstats.YAVG,trim=end_frame=0 -an -f null -
@@ -174,7 +173,7 @@ fn get_frame_yavg_slow(timestamp: &String, input_vid: &String) -> f32 {
             ("-an"),                    // drop the audio output stream
             ("-f"),                     // use null output format i.e. do not encode the input stream to an output stream
             ("null"),
-            ("-"),                      // dump to stderr. metadata=print pushes everything to stderr.
+            ("-"),                      // dump to stderr. metadata=print pushes everything to stderr, for whatever reason
         ]);
 
     let res = match cmd.output() {

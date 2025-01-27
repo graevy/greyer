@@ -6,6 +6,4 @@ this script:
 
 only good use-case is HDR on OLEDs
 
-`cargo build`
-
-`cargo run -- -s input_srt_file -v input_video_file -o output_srt_file`
+`cargo run -- -s input_srt_file -v input_video_file [-o output_srt_file] [-c correction_coefficient] [--fast]`
