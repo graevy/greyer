@@ -1,4 +1,4 @@
-use srtlib::{Subtitle, Subtitles};
+use srtlib::{Subtitle, Subtitles, Timestamp};
 use regex::Regex;
 use std::process::Command;
 use clap::Parser as clapParser;
@@ -162,7 +162,7 @@ fn get_frame_yavg_slow(timestamp: &String, input_vid: &String) -> f32 {
     cmd
         .args(&[
             ("-y"),                     // overwrite existing output
-            ("-hide_banner"),           // reduce printed metadata to stdout
+            ("-hide_banner"),           // reduce printed metadata
             ("-accurate_seek"),         // decode video until reaching timestamp
             ("-ss"),                    // seek to timestamp
             (timestamp.as_str()),
@@ -209,29 +209,49 @@ fn get_frame_yavg_slow(timestamp: &String, input_vid: &String) -> f32 {
     }
 }
 
+// only needs to be its own function because of the watermark headache
+// watermark confirms that you're using the correct subs. also advertising is cute
+fn get_subtitles_from_file(file: &String) -> Subtitles {
+    let mut file_subs_vec = Subtitles::parse_from_file(file, None)
+        .expect(format!("Err parsing {}", file).as_str()).to_vec();
+
+    if file_subs_vec.len() == 0 {
+        panic!("No subtitles found");
+    }
+
+    let sub_start_time = file_subs_vec[0].start_time;
+    let watermark_subtitle = Subtitle::new(
+        0, Timestamp::new(0, 0, 0, 0),
+        sub_start_time,
+        String::from("Srt color-corrected with https://github.com/graevy/greyer")
+    );
+    file_subs_vec.insert(0, watermark_subtitle);
+    Subtitles::new_from_vec(file_subs_vec)
+}
+
 fn main() {
     let args = Args::parse();
-    let subs = &mut Subtitles::parse_from_file(&args.input_sub, None)
-        .expect(format!("Err parsing {}", &args.input_sub).as_str());
-    let len = subs.len();
+
+    let subs = &mut get_subtitles_from_file(&args.input_sub);
+    let len = subs.len() - 1;
 
     let yavg_function = if args.fast {
-         get_frame_yavg_fast
+        get_frame_yavg_fast
     } else { 
         get_frame_yavg_slow
     };
 
     let start = std::time::Instant::now();
     let mut prev: std::time::Duration;
-    for (idx, sub) in subs.into_iter().enumerate() {
+    for (idx, mut sub) in subs.into_iter().enumerate() {
         let timestamp = ffmpeg_timestamp(sub.start_time.get());
-        println!("Fetching YAVG {} / {} @ t:{}", idx, len, timestamp);
+        println!("Fetching YAVG {} / {} @ t:{}s", idx, len, timestamp);
 
         prev = start.elapsed();
         let yavg = yavg_function(&timestamp, &args.input_vid);
 
         let correction = get_correction(yavg, &args);
-        println!("t:{} YAVG={}, correction={} (took {:.3?})", timestamp, yavg, correction, start.elapsed() - prev);
+        println!("YAVG={}, correction={} (in {:.3?})\r\n", yavg, correction, start.elapsed() - prev);
 
         let subtext = sub.text.clone();
         let parser = tl::parse(subtext.as_str(), tl::ParserOptions::default()).expect("Err on parse");
@@ -244,11 +264,13 @@ fn main() {
             }  
         }
 
+        sub.num += 1; // because watermark was added
+
         if existing_font_tags {
-            replace_existing_sub_colors(sub, correction)
+            replace_existing_sub_colors(&mut sub, correction)
         }
         else {
-            add_color_to_sub(sub, correction);
+            add_color_to_sub(&mut sub, correction);
         }
     }
     subs.write_to_file(&args.output_sub, None)
