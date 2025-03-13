@@ -8,3 +8,7 @@ this script:
 only good use-case is HDR on OLEDs
 
 `cargo run -- -s input_srt_file -v input_video_file [-o output_srt_file] [-c correction_coefficient] [--fast]`
+
+deps:
+- openssl
+- pkg-config
